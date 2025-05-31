@@ -344,12 +344,19 @@ reparent(struct proc *p)
 // An exited process remains in the zombie state
 // until its parent calls wait().
 void
-exit(int status)
+exit(int status, char *msg)
 {
   struct proc *p = myproc();
 
   if(p == initproc)
     panic("init exiting");
+
+  // Save exit message in the process control block (NEW CODE)
+  if(msg != 0) {
+    safestrcpy(p->exit_msg, msg, sizeof(p->exit_msg));
+  } else {
+    p->exit_msg[0] = '\0';  // Empty string if no message provided
+  }
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -388,7 +395,7 @@ exit(int status)
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
 int
-wait(uint64 addr)
+wait(uint64 addr, uint64 msg_addr)
 {
   struct proc *pp;
   int havekids, pid;
@@ -414,6 +421,18 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
+          
+          // Copy exit message to user space (NEW CODE)
+         // printf("Exit message in PCB: '%s'\n", pp->exit_msg);
+          if(msg_addr != 0 && 
+             copyout(p->pagetable, msg_addr, (char *)pp->exit_msg,
+                    sizeof(pp->exit_msg)) < 0) {
+            release(&pp->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          
+          // Free the zombie process resources
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
@@ -680,4 +699,119 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+int
+forkn(int n, uint64 pids_addr)
+{
+  int i;
+  int pid;
+  int successful_forks = 0;
+  int child_pids[NPROC] = {0};  // Initialize to zeros
+  struct proc *p = myproc();
+  
+  // Check that n is valid (between 1 and 16)
+  if(n < 1 || n > 16)
+    return -1;
+  
+  // Create n child processes
+  for(i = 0; i < n; i++) {
+    pid = fork();
+    if(pid < 0) {
+      // Fork failed, clean up all previously created children
+      for(int j = 0; j < successful_forks; j++) {
+        if(child_pids[j] > 0) {
+          kill(child_pids[j]);
+        }
+      }
+      return -1;
+    } else if(pid == 0) {
+      // This is the child process
+      return i + 1;  // Return 1, 2, 3, ... for each child
+    } else {
+      // This is the parent
+      child_pids[i] = pid;
+      successful_forks++;
+    }
+  }
+  
+  // Copy PIDs to user space
+  if(copyout(p->pagetable, pids_addr, (char*)child_pids, n * sizeof(int)) < 0)
+    return -1;
+  
+  return 0;  // Success
+}
+
+int
+waitall(uint64 n_addr, uint64 statuses_addr)
+{
+  struct proc *pp;
+  int havekids;
+  struct proc *p = myproc();
+  int finished_count = 0;
+  int statuses[NPROC] = {0};  // Initialize to zeros
+  
+  for(;;){
+    // Scan through table looking for zombie children.
+    havekids = 0;
+    
+    acquire(&wait_lock);
+    for(pp = proc; pp < &proc[NPROC]; pp++){
+      if(pp->parent == p){
+        // Found a child
+        havekids = 1;
+        
+        // If child is a zombie, collect its exit status
+        acquire(&pp->lock);
+        if(pp->state == ZOMBIE){
+          // Store exit status
+          statuses[finished_count] = pp->xstate;
+          finished_count++;
+          
+          // Free the child
+          freeproc(pp);
+          release(&pp->lock);
+          continue;
+        }
+        release(&pp->lock);
+      }
+    }
+    
+    // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      break;
+    }
+    
+    // Check if all children are zombies - that is, no more running children
+    int all_done = 1;
+    for(pp = proc; pp < &proc[NPROC]; pp++){
+      acquire(&pp->lock);
+      if(pp->parent == p && pp->state != ZOMBIE && pp->state != UNUSED){
+        all_done = 0;
+        release(&pp->lock);
+        break;
+      }
+      release(&pp->lock);
+    }
+    
+    if(all_done){
+      release(&wait_lock);
+      break;
+    }
+    
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);
+    release(&wait_lock);
+  }
+  
+  // Copy results to user space
+  if(copyout(p->pagetable, n_addr, (char*)&finished_count, sizeof(int)) < 0)
+    return -1;
+  
+  if(finished_count > 0 && 
+     copyout(p->pagetable, statuses_addr, (char*)statuses, 
+             sizeof(int) * finished_count) < 0)
+    return -1;
+  
+  return 0;  // Success
 }

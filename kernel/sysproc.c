@@ -10,9 +10,21 @@ uint64
 sys_exit(void)
 {
   int n;
+  char msg[32];
+  
+  
   argint(0, &n);
-  exit(n);
-  return 0;  // not reached
+  // Initialize to empty string
+  msg[0] = '\0';
+  
+  // Try to get the message - IMPORTANT: use address 1 for the second argument
+  argstr(1, msg, sizeof(msg));
+  
+  // Debug print
+  //printf("sys_exit received message: '%s'\n", msg);
+  
+  exit(n, msg);
+  return 0;  // Not reached
 }
 
 uint64
@@ -31,8 +43,11 @@ uint64
 sys_wait(void)
 {
   uint64 p;
+  uint64 msg_addr;
   argaddr(0, &p);
-  return wait(p);
+  argaddr(1, &msg_addr);
+  
+  return wait(p, msg_addr);
 }
 
 uint64
@@ -47,7 +62,14 @@ sys_sbrk(void)
     return -1;
   return addr;
 }
-
+uint64
+sys_memsize(void)
+{
+  struct proc *p = myproc();
+  
+  // Return the size of the process's memory
+  return p->sz;
+}
 uint64
 sys_sleep(void)
 {
@@ -88,4 +110,34 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+uint64
+sys_forkn(void)
+{
+  int n;
+  uint64 pids_addr;
+  
+  // Get number of child processes to create
+  argint(0, &n);
+  
+  
+  // Get pointer to store PIDs
+  argaddr(1, &pids_addr);
+  
+  
+  return forkn(n, pids_addr);
+}
+uint64
+sys_waitall(void)
+{
+  uint64 n_addr;
+  uint64 statuses_addr;
+  
+  // Get pointer to store number of finished processes
+  
+    argaddr(0, &n_addr);
+  // Get pointer to store exit statuses
+  
+   argaddr(1, &statuses_addr);
+  return waitall(n_addr, statuses_addr);
 }
