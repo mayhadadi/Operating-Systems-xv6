@@ -23,3 +23,7 @@
 #define SYS_memsize  22 
 #define SYS_forkn    23
 #define SYS_waitall  24
+#define SYS_peterson_create  25
+#define SYS_peterson_acquire 26
+#define SYS_peterson_release 27
+#define SYS_peterson_destroy 28

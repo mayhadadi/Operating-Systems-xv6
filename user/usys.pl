@@ -39,3 +39,7 @@ entry("sleep");
 entry("uptime");
 entry("forkn");
 entry("waitall");
+entry("peterson_create");
+entry("peterson_acquire");
+entry("peterson_release");
+entry("peterson_destroy");

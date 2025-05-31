@@ -25,6 +25,10 @@ int sleep(int);
 int uptime(void);
 int forkn(int n, int* pids);
 int waitall(int* n, int* statuses);
+int peterson_create(void);
+int peterson_acquire(int, int);
+int peterson_release(int, int);
+int peterson_destroy(int);
 
 // ulib.c
 int stat(const char*, struct stat*);
